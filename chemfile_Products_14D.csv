@@ -1,0 +1,27 @@
+pucid,source.type,form,variable,dtxsid,product.id,pr.chem,dist.type,par1,par2,par3,par4,l.trunc,u.trunc,resamp,PUC_level3
+AC.0100.010,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,body paint
+AC.0300.010,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,4.70E-06,1,NA,NA,NA,NA,NA,fabric dye
+CP.0200.010,product,pump spray,f.chemical,DTXSID4020533,1,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,bathroom cleaner
+CP.0200.010,product,liquid,f.chemical,DTXSID4020533,2,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,bathroom cleaner
+CP.0200.010,product,gel,f.chemical,DTXSID4020533,1,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,bathroom cleaner
+CP.0200.010,product,aerosol,f.chemical,DTXSID4020533,1,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,bathroom cleaner
+CP.0400.030,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,9.70E-06,1,NA,NA,NA,NA,NA,automatic dishwashing detergent
+CP.0400.030,product,powder,f.chemical,DTXSID4020533,1,1,lognormal,9.70E-06,1,NA,NA,NA,NA,NA,automatic dishwashing detergent
+CP.0400.030,product,gel,f.chemical,DTXSID4020533,2,1,lognormal,9.70E-06,1,NA,NA,NA,NA,NA,automatic dishwashing detergent
+CP.0400.040,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,2.04E-04,1,NA,NA,NA,NA,NA,dish soap
+CP.0700.040,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,surface cleaner
+CP.0700.040,product,pump spray,f.chemical,DTXSID4020533,1,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,surface cleaner
+CP.0700.040,product,powder,f.chemical,DTXSID4020533,2,1,lognormal,9.00E-06,1,NA,NA,NA,NA,NA,surface cleaner
+CP.1200.060,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,1.40E-05,1,NA,NA,NA,NA,NA,laundry detergent
+CP.1200.060,product,powder,f.chemical,DTXSID4020533,1,1,lognormal,1.40E-05,1,NA,NA,NA,NA,NA,laundry detergent
+HM.1000.010,product,foam spray,f.chemical,DTXSID4020533,1,1,lognormal,5.00E-04,1,NA,NA,NA,NA,NA,spray foam
+HM.1400.010,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,paint
+HM.1400.010,product,aerosol,f.chemical,DTXSID4020533,2,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,paint
+HM.1400.012,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,water-based paint
+HM.1400.012,product,aerosol,f.chemical,DTXSID4020533,2,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,water-based paint
+HM.1400.012.E,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,water-based paint - exterior
+HM.1400.060,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,stain
+HM.1400.060.E,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,stain - exterior
+VE.0100.010,product,aerosol,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,auto paint
+VE.0100.010,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,3.00E-05,1,NA,NA,NA,NA,NA,auto paint
+VE.0500.010,product,liquid,f.chemical,DTXSID4020533,1,1,lognormal,8.60E-05,1,NA,NA,NA,NA,NA,antifreeze
