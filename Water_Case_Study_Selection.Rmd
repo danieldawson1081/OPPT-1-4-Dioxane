@@ -1,0 +1,165 @@
+---
+title: "Water System Case Study Selection"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+### This scripts looks at the UCMR3 monitoring data by state and water source type to identify potential case studies for a proof of concept example. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(openxlsx)
+
+```
+
+
+
+```{r, echo=FALSE}
+#Read in DW_by_State.xlsx data from UCMR3 dataset, select by North Carolina, take medians by system, rank order by decreasing median
+data=read.xlsx("DW_by_State.xlsx")
+NC=data[data$State=="NC",]
+NY=data[data$State=="NY",]
+NC=NC[order(NC$FacilityWaterType, NC$AnalyticalResultValue, decreasing=TRUE),]
+NY=NY[order(NY$FacilityWaterType, NY$AnalyticalResultValue, decreasing=TRUE),]
+
+
+```
+
+
+
+```{r,, echo=FALSE}
+#Water selection function 
+watermultiple=function(data,number){
+naomit=data[which(is.na(data$AnalyticalResultValue)==FALSE),]
+wateragg=aggregate(AnalyticalResultValue~State+PWSID+FacilityWaterType, data=naomit, FUN="median")
+wateragg$count=1
+multipleclass=aggregate(count~PWSID, FUN=sum, data=wateragg)
+multipleclass=multipleclass[multipleclass$count>1,]
+multiplepws=multipleclass$PWSID
+multiplepws=naomit[which(naomit$PWSID%in%multiplepws),]
+multiplepws=multiplepws[order(multiplepws$AnalyticalResultValue),]
+namelist=NULL
+for(i in 1:length(multiplepws$PWSID)){
+  if(length(namelist)==number) {break} else
+  if(multiplepws$PWSID[i]%in%namelist){next} else {
+    namelist=c(namelist,multiplepws$PWSID[i])}}
+multiplepws=multiplepws[which(multiplepws$PWSID%in%namelist),]
+boxplot(multiplepws$AnalyticalResultValue~ multiplepws$FacilityWaterType + multiplepws$State, main=paste0("Water Type: Multiple"), ylab="1,4D concentration in ug/l", xlab="State")}
+
+waterselect=function(data,type="GW",number){
+data$FacilityWaterType=ifelse(data$FacilityWaterType=="GU", "GW", data$FacilityWaterType)
+water=data[data$FacilityWaterType==type ,]  
+naomit=water[which(is.na(water$AnalyticalResultValue)==FALSE),]
+wateragg=aggregate(AnalyticalResultValue~State, data=naomit, FUN="median")
+wateragg=wateragg[order(wateragg$AnalyticalResultValue, decreasing=TRUE),]
+wateragg=wateragg[1:number,]
+watertrunc=naomit[naomit$State%in%wateragg$State,]
+watertrunc$State=factor(watertrunc$State, levels=wateragg$State)
+##Boxpots
+boxplot(watertrunc$AnalyticalResultValue~watertrunc$State, main=paste("Water Type: ", type), ylab="1,4D concentration in ug/l", xlab="State")
+}
+
+
+stateselect=function(data, state="NC", number=10, reduction.fact=0.9, GWYN=1, SWYN=1, MXYN=1, MultipleYN=1){
+data$FacilityWaterType=ifelse(data$FacilityWaterType=="GU", "GW", data$FacilityWaterType)
+water=data[data$State==state,]
+naomit=water[which(is.na(water$AnalyticalResultValue)==FALSE),]
+wateragg=aggregate(AnalyticalResultValue~FacilityWaterType + PWSID + PWSName, data=naomit, FUN="median")
+
+GW=wateragg[c(wateragg$FacilityWaterType=="GW"| wateragg$FacilityWaterType=="GU"),]
+SW=wateragg[wateragg$FacilityWaterType=="SW",]
+MX=wateragg[wateragg$FacilityWaterType=="MX",]
+
+GW=GW[order(GW$FacilityWaterType, GW$AnalyticalResultValue, decreasing=TRUE),]
+SW=SW[order(SW$FacilityWaterType, SW$AnalyticalResultValue, decreasing=TRUE),]
+MX=MX[order(MX$FacilityWaterType, MX$AnalyticalResultValue, decreasing=TRUE),]
+
+
+GWnumber=SWnumber=MXnumber=number
+if(number>length(unique(GW$PWSID))) { GWnumber = length(unique(GW$PWSID))}
+if(number>length(unique(SW$PWSID))) { SWnumber = length(unique(SW$PWSID))}
+if(number>length(unique(MX$PWSID))) { MXnumber = length(unique(MX$PWSID))}
+GW=GW[1:GWnumber,]
+SW=SW[1:SWnumber,]
+MX=MX[1:MXnumber,]
+
+GWwater=naomit[which(naomit$PWSID%in%GW$PWSID & naomit$FacilityWaterType=="GW") ,]
+SWwater=naomit[which(naomit$PWSID%in%SW$PWSID & naomit$FacilityWaterType=="SW") ,]
+MXwater=naomit[which(naomit$PWSID%in%MX$PWSID & naomit$FacilityWaterType=="MX") ,]
+
+GWwater$PWSID=factor(GWwater$PWSID, levels=GW$PWSID)
+SWwater$PWSID=factor(SWwater$PWSID, levels=SW$PWSID)
+MXwater$PWSID=factor(MXwater$PWSID, levels=MX$PWSID)
+
+wateragg$count=1
+multipleclass=aggregate(count~PWSID+PWSName, FUN=sum, data=wateragg)
+multipleclass=multipleclass[multipleclass$count>1,]
+multiplepws=multipleclass$PWSID
+multiplepws=naomit[which(naomit$PWSID%in%multiplepws),]
+
+#Boxplots
+if (dim(GWwater)[1]>0 & GWYN==1){
+boxplot(GWwater$AnalyticalResultValue~GWwater$PWSID, main=paste0("Top ", length(unique(GWwater$PWSID)), " GW systems: ", state), cex.axis=reduction.fact, las=2, xlab="", ylab="1,4D concentration in ug/l")
+print(GW)  
+  }
+if (dim(SWwater)[1]>0 & SWYN==1){
+boxplot(SWwater$AnalyticalResultValue~SWwater$PWSID, main=paste0("Top ", length(unique(SWwater$PWSID)), " SW systems: ", state),cex.axis=reduction.fact, las=2, xlab="",ylab="1,4D concentration in ug/l")
+  print(SW)}
+
+if (dim(MXwater)[1]>0 & MXYN==1){
+boxplot(MXwater$AnalyticalResultValue~MXwater$PWSID, main=paste0("Top ", length(unique(MXwater$PWSID)), " MX systems: ", state),cex.axis=reduction.fact, las=2, xlab="",ylab="1,4D concentration in ug/l")
+print(MX)}
+
+if (dim(multiplepws)[1]>0 & MultipleYN==1){
+boxplot(multiplepws$AnalyticalResultValue~ multiplepws$FacilityWaterType + multiplepws$PWSID, main=paste0("Top ", length(unique(multiplepws$PWSID)), " multiple class systems: ", state),cex.axis=reduction.fact, las=2, xlab="",ylab="1,4D concentration in ug/l")
+print(multipleclass)  
+  }
+
+}
+
+
+```
+
+This section considers each water source type (groundwater(GW), surface water(SW), mixed sources (MX), and multiple sources) by state, showing the top 10 states in terms of decreasing median concentrations. The difference between MX and multiple sources is that MX is listed as a facility type for a PWS in the UCRM3 data, while multiple sources is when multiple facility types are listed for a single PWS. This distinction might become clearer with case study development. 
+
+New Hampshire appears to have a good candidate for a groundwater case study, though NY and CA might be better since there has been a focus on 1,4D there and there are a number of high outliers in those states.North Carolina appears to have good candidates for a surface water case study.  Utah appears to have a good candidate for a mixed water case study. Finally, Alabama has a good candidate for a system with multiple sources.
+```{r, echo=FALSE}
+waterselect(data=data, type="GW", number=10)
+waterselect(data=data, type="SW", number=10)
+waterselect(data=data, type="MX", number=10)
+watermultiple(data=data, number=10)
+```
+
+This section considers specific water systems as potential case study examples in individual states by water utility types. The selection of states is based on the discussion above.   
+
+There a couple of good surface water case systems in NC. Note that NC0363108 (Moore County Public Utilities-Pinehurst) has the highest median,but 0356010 (City of Sanford) has the highest value. Both are near the Haw River on the Cape Fear watershed. Its also worth noting that the Pinehurst PWS operates using an interconnection with the East Moore County Water(PWS5063011), which is not included in the UCMR3 data. The City of Sanford is a town just downstream of the City of Pittsboro, and has the highest overall 1,4D levels in NC. It looks like it gets it's water from the Haw river. 
+```{r, echo=FALSE}
+stateselect(data=data, state="NC", number=10, reduction.fact = 0.7, GWYN=0, SWYN=1, MXYN=0, MultipleYN=0)
+
+```
+
+A couple of good case studies for GW in NH. The highest value comes from Cow Hill Wellhouse PWS in Bartlett, NH. The second is N. Walpole Village, located on the Connecticut River. New York also might be good for GW case studies, as they have some high outliers. 
+```{r, echo=FALSE}
+stateselect(data=data, state="NH", number=10, reduction.fact = 0.9, GWYN=1, SWYN=0, MXYN=0, MultipleYN=0)
+
+stateselect(data=data, state="NY", number=10, reduction.fact = 0.9, GWYN=1, SWYN=0, MXYN=0, MultipleYN=0)
+
+
+```
+Utah has the best potential case studies for a mixed water system. The highest concentration from Hill Air Force Base in Ogden. 
+```{r, echo=FALSE}
+stateselect(data=data, state="UT", number=10, reduction.fact = 0.9, GWYN=0, SWYN=0, MXYN=1, MultipleYN=0)
+```
+Alabama has the best potential case studies for water systems with multiple water sources. The highest concentrations are found in  Colbert County Rural Water System, located near the Tennessee river and Muscle Shoals, AL.  
+
+```{r, echo=FALSE}
+stateselect(data=data, state="AL", number=10, reduction.fact = 0.7, GWYN=0, SWYN=0, MXYN=0, MultipleYN=1)
+
+```
+
+
+

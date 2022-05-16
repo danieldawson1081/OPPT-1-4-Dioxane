@@ -1,0 +1,180 @@
+---
+title: "City of Sanford Case Study"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+This serves as part of the proof of concept workflow for calculating the POTW and industrial contributions to surface water concentrations of 1,4-Dioxane. This POC case study focuses on the City of Sanford, North Carolina. This city uses only surface water for drinking, which it draws from intakes on the Cape Fear River near the junction between the Haw River and the Deep River. The city's drinking water intakes are downstream of the city's wastewater outfalls located on the Deep River. In addition, the City of Pittsboro is the immediately upstream municipality located on the Haw River. This city has a wastewater outfall located on Roberson creek, which releases into the Haw River. There is another small WWTP called Fearrington WWTP that releases to the Jordan Lake that should probably be included in this effort. However, the streamreach in the flow database puts it on the Haw River, while it's website suggests it is on Bush creek, which is connected to Jordan lake. It's also possible that this isn't an active site. This will have to be looked into. 
+
+According to some initial investigation by Franklyn, there don't appear to be any recent permitted releases directly into surfacewater, but there are multiple industrial releases into the City of Sanford POTW. There is one industrial releaser into Roberson creek upstream of the Haw River that is a Biofuels plant, but they might not include any 1,4D in their releases. 
+
+The overall layout of this script includes 1)finding the bounds of the system from the flow database and ISTREEM, 2)assembling the main stream segments, 3)building out the tributaries of each section, and 4) associating flow data.  
+
+Load Libraries
+```{r}
+library(sf)
+library(openxlsx)
+
+```
+
+
+Pull in data. This includes the flow data supplied by Jason, and the flow data from NHDPlus dataset
+```{r, echo=FALSE}
+library(sf)
+library(openxlsx)
+
+##Upload flow database from Jason
+fdb=read.xlsx('FlowDatabase/Copy of Flow Db_Flat File_10232018.xlsx')
+plusflows=     st_read("NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusFlow")
+flows=     st_read("NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusEROMMA")
+flowline=st_read(  "NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDFlowline")
+flowlinevaa=st_read(  "NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusFlowlineVAA")
+```
+1: Identify the bounds of the system. Determine the stream reaches in which each of the endpoints is located, based on information in the Flow database supplied by Jason
+
+Identify stream reaches of system bounds.
+
+Flow database: City of Pittsboro WWTP, City of Sanford WWTP, City of Sanford DWI. Note, another WWTP, Carolina Trace WWTP, is located downstream of the intakes of Sanford, and thus shouldn't impact the water quality in Sanford. Note that in future searches, the "POTW" label might not pick up non-publicly owned facilities. Thus, it's better to do a visual search after narrowing down the place, or searching for the term "WWTP" in the name. See notes above for Fearrington WWTP.  
+
+Also note, the Reach information for the City of Sanford may not be quite right. Its different from here than it is from ISTREEM. The STREEMREACH in ISTREEM is 03030004002148. Initial investigation suggests that the ISTREEM reach is more likely to be correct than the one listed as "City of Sanford" in the flow database. However, it's not clear what the line in the flow database labeled "City of Sanford" is. So, we're going to use the one listed in ISTEEM here.   
+```{r,echo=TRUE}
+
+#Select WWTP's
+Bounds=subset(fdb, PRIMARY_NAME== "PITTSBORO WWTP" | PRIMARY_NAME=="BIG BUFFALO WWTP") 
+#The reach code associated with Fearrington village wwtp appears to be incorrect. The reach listed in the db file has it on a #reach far up on the Haw river, instead of on Bush Creek, as listed on their website. 
+
+#Also going to add in the reachcode from ISTREEM for the Sanford DWI
+FlowBounds=flowline[which(flowline$ReachCode%in%Bounds$REACHCODE | flowline$ReachCode=="03030004002148"),]
+
+#Associate records with flow data and hydroseq data
+FlowBounds=merge(FlowBounds, flows[c("NHDPlusID", "QEMA")], by="NHDPlusID", all.x=TRUE)
+FlowBounds=merge(FlowBounds, flowlinevaa[c("NHDPlusID", "HydroSeq", "ToNode", "FromNode","UpHydroSeq", "DnHydroSeq", "TerminalPa", "TerminalFl", "LevelPathI")], by="NHDPlusID", all.x=TRUE)
+FlowBounds=st_zm(FlowBounds)
+FlowBounds$seq1=seq(1,dim(FlowBounds)[1],1)
+plot(FlowBounds["GNIS_Name"],key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3) #This shows the relative locations of the 2 inflow and 1 outflow
+
+##Restrict FlowBounds to only a single record for each location, representing the furthest upstream location on the reach 
+FlowBounds1=NULL
+for(i in unique(FlowBounds$GNIS_Name)){
+  river=subset(FlowBounds, GNIS_Name==i)
+  river=river[which(river$HydroSeq==max(river$HydroSeq)),]
+  FlowBounds1=rbind(FlowBounds1, river)
+  }
+FlowBounds1=st_drop_geometry(FlowBounds1)
+```
+
+Merge together the flowline and flowline attributes tables from the NHDPlus dataset
+```{r,echo=TRUE}
+sa=merge(flowline, flowlinevaa, by="NHDPlusID", all.y=TRUE, no.dups=TRUE)
+sa=sa[,-c(which(names(sa)=="ReachCode.x"))]
+names(sa)[which(names(sa)=="ReachCode.y")]="ReachCode"
+sa=st_zm(sa) #drop the z dimension here.
+sa1=st_drop_geometry(sa) #create a geometry less data.frame to work with here. 
+
+```
+Stream Segment Building Function
+```{r,echo=TRUE}
+StreamSegfunc=function(ss1, dbf, pf){
+sabuild=ss1 #assign 
+StreamList=unique(sabuild$NHDPlusID)
+newcount=length(StreamList)
+pf1=pf[-c(which(duplicated(pf$ToNHDPID))),]
+sadim=dim(sabuild)
+
+while(sadim>0){
+  sabuild1=merge(sabuild, pf1,by.x="NHDPlusID", by.y="ToNHDPID", all.x=TRUE, all.y=FALSE)
+  newstreams=sabuild1$FromNHDPID
+  StreamList=c(StreamList, newstreams)
+  StreamList= StreamList[-c(which(duplicated(StreamList)==TRUE))]
+  sabuild=dbf[which(dbf$NHDPlusID%in%newstreams),]
+  sadim=dim(sabuild)[1]
+  }
+  return(StreamList)}
+```
+
+Now, assemble the main river segments. 
+
+Haw River
+```{r, echo=TRUE}
+#Roberson Creek
+sub1=sa1[which(sa1$GNIS_Name=="Roberson Creek"),]
+#Find maximum extent
+maxRob=sub1[which(sub1$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name=="Roberson Creek"), "ReachCode"]),"PathLength"]
+sub1=sub1[sub1$PathLength<=maxRob,]
+minRob=sub1[which(sub1$PathLength==min(sub1$PathLength)),"DnHydroSeq"]
+
+#Haw River
+sub2=sa1[which(sa1$GNIS_Name=="Haw River"),]
+sub2=sub2[order(sub2$PathLength),]
+minextHaw=sub2[which(sub2$PathLength==min(sub2$PathLength)),"PathLength"] #Beginning of River
+maxextHaw=sub2[which(sub2$HydroSeq==minRob), "PathLength"  ]
+sub2=sub2[which(sub2$PathLength>=minextHaw & sub2$PathLength<=maxextHaw),]
+
+sub3=rbind(sub1,sub2)
+
+HawSS=StreamSegfunc(sub3, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%HawSS),]
+plot(sa2["GNIS_Name"],
+     key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3, pal=sf.colors(11, categorical=TRUE), main="Haw River Watershed Focus Area", )
+
+```
+
+Deep River
+```{r,echo=TRUE}
+sub4=sa1[which(sa1$GNIS_Name=="Deep River"),]
+maxDeep=sub4[which(sub4$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name=="Deep River"), "ReachCode"]),"PathLength"]
+sub4=sub4[sub4$PathLength<=max(maxDeep),]
+DeepSS=StreamSegfunc(ss1=sub4, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%DeepSS),]
+plot(sa2["GNIS_Name"], main="Deep River Watershed Focus Area",key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)
+
+```
+
+Cape Fear River
+```{r,echo=TRUE}
+sub5=sa1[which(sa1$GNIS_Name=="Cape Fear River"),]
+minFear=sub5[which(sub5$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name=="Cape Fear River"), "ReachCode"]),"PathLength"]
+sub5=sub5[sub5$PathLength>=min(minFear), ]
+FearSS=StreamSegfunc(ss1=sub5, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%FearSS),]
+unique(sa2$GNIS_Name)
+plot(sa2["GNIS_Name"], main="Cape Fear River WaterShed Focus Area",key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)
+```
+
+Now combine together entire watershed of focus area
+```{r,echo=TRUE}
+
+#First, eliminate duplicates between sets
+HawSS=HawSS[-c(which(HawSS%in%DeepSS))]
+DeepSS=DeepSS[-c(which(DeepSS%in%FearSS))]
+HawSS=HawSS[-c(which(HawSS%in%FearSS))]
+AllStreams=c(HawSS,DeepSS,FearSS)
+
+#Now crate entire set to check
+sa2=sa[which(sa$NHDPlusID%in%AllStreams),]
+sa2$GNIS_Name=ifelse(is.na(sa2$GNIS_Name), "UnNamed", sa2$GNIS_Name)
+plot(sa2["GNIS_Name"], main="City of Sanford WaterShed Focus Area",key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)# Confirmed; area looks correct
+
+#Now, extract flow data for each segment
+saentire=merge(sa, flows[c("NHDPlusID", "QEMA", "QIncrEMA", "QIncrFMA", "QIncrDMA", "QIncrBMA")], by="NHDPlusID", all.x=TRUE)
+HawFlow=saentire[which(saentire$NHDPlusID%in%HawSS),]
+DeepFlow=saentire[which(saentire$NHDPlusID%in%DeepSS),]
+FearFlow=saentire[which(saentire$NHDPlusID%in%FearSS),]
+
+```
+Next, extract flow data from each watershed. The NHDPlus dataset comes with incremental flows. So, we just have to sum all of these flows to get the expected total flow in the system from the particular watersheds. Then, we have to divide the total inputs into the system by this value. Not sure whether to include the flows from the inputs (i.e., wastewater volumes, industrial releases), since they would ostensibly be already captured by the gauges.  
+```{r, echo=TRUE}
+
+HawFlowtotal=sum(HawFlow$QIncrBMA)
+DeepFlowtotal=sum(DeepFlow$QIncrBMA)
+FearFlowtotal=sum(FearFlow$QIncrBMA)
+
+HawFlowtotal
+DeepFlowtotal
+FearFlowtotal
+```
+

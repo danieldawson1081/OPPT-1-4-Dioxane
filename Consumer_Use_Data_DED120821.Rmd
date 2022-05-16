@@ -1,0 +1,218 @@
+---
+title: "ConsumerUseData"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+Import data sheets from sheds-ht package repo
+```{r}
+setwd("C:/Users/ddawso01/OneDrive - Environmental Protection Agency (EPA)/Profile/Documents/Repos/SHEDSDevel/inst/extdata")
+chem=read.csv("source_chem_products.csv")
+vars=read.csv("source_vars_products.csv")
+names(chem)=tolower(names(chem)) #make names the same case
+
+```
+
+
+Extract PUC's that correspond to byproduct product use for 1,4 Dioxane
+```{r}
+products=c(
+  "surface cleaner",
+  "antifreeze",
+	"dish soap",
+	 "dishwashing detergent",
+	"laundry detergent",
+	 "paints and floor lacquer",
+	 "textile dye",
+"spray polyurethane foam") 
+#1. surface cleaner
+
+
+```
+
+
+Surface cleaner
+```{r}
+#Note that the risk evaluation specifies that surface cleaner includes all purpose and bathroom cleaners, so bathroom was included as a term 
+scchem=(grepl("surface",chem$source.description ) & grepl("cleaner",chem$source.description )) | grepl("bathroom",chem$source.description ) 
+scvars=(grepl("surface",vars$source.description ) & grepl("cleaner",vars$source.description )) | grepl("bathroom",vars$source.description ) 
+chem[scchem,]
+vars[scvars,]
+
+scvars
+
+```
+
+Antifreeze
+
+```{r}
+afchem=grepl("antifreeze",chem$source.description ) 
+afvars=grepl("antifreeze",vars$source.description ) 
+chem[afchem,]
+vars[afvars,]
+````
+
+Dishsoap
+
+```{r}
+dschem=grepl("dish soap",chem$source.description ) 
+dsvars=grepl("dish soap",vars$source.description ) 
+chem[dschem,]
+vars[dsvars,]
+```
+
+Dishwashing detergent
+
+```{r}
+#note rinse aids contain surfactants; will include here with detergents but can be removed. 
+dwchem=grepl("dishwashing",chem$source.description) & (grepl("detergent",chem$source.description) | grepl("additive",chem$source.description )) 
+dwvars=grepl("dishwashing",vars$source.description) & (grepl("detergent",vars$source.description) | grepl("additive",vars$source.description )) 
+
+chem[dwchem,]
+vars[dwvars,]
+
+```
+
+Laundry detergent
+```{r}
+#Note, only liquid laundry detergent was used in the Risk Evaluation
+ldchem=grepl("laundry detergent",chem$source.description ) 
+ldvars=grepl("laundry detergent",vars$source.description ) 
+chem[ldchem,]
+vars[ldvars,]
+
+```
+
+Paints and Floor lacquer
+
+```{r}
+#Westat latex paint data was used for duration of use and mass of product in the risk evaluation. #Bedroom was specified as the room of use. Latex paint in SHeds is used in both paint-exterior and #paint-interior. THere are also craft paints, but I don't know if those woudl be the same. There are no #floor lacquers listed in sheds. However, there are wood stains-NOC, which includes interior #application. 
+
+pfchem=(grepl("paint interior",chem$source.description) | 
+  grepl("paint exterior",chem$source.description) | 
+  grepl("paint NOC",chem$source.description) |
+  grepl("paint spray",chem$source.description) |
+  grepl("arts and crafts paint",chem$source.description) |
+   grepl("stain NOC",chem$source.description )|
+  grepl("stain exterior",chem$source.description)) 
+  
+pfvars=grepl("paint-interior",vars$source.description) | 
+  grepl("paint-exterior",vars$source.description) | 
+  grepl("paint-NOC",vars$source.description) |
+  grepl("paint-spray",vars$source.description) |
+  grepl("arts and crafts paint",vars$source.description) |
+  grepl("stain-NOC",vars$source.description )|
+  grepl("stain-exterior",vars$source.description )
+
+#Note that this includes Body Paint and Auto paint which I don't know if we want to include, so I am setting up lines to take out those terms we we want
+#Exclude terms
+pfchemexclude=grepl("body paint NOC",chem$source.description ) | grepl("auto paint NOC",chem$source.description )  
+
+pfvarsexclude=grepl("body paint-NOC",vars$source.description ) | grepl("auto paint-NOC",vars$source.description )  
+
+unique(chem[pfchemexclude, "source.description"])
+unique(vars[pfvars, "source.description"])
+
+```
+
+Textile dye
+```{r}
+#Note, only liquid laundry detergent was used in the Risk Evaluation
+dychem=grepl("dye",chem$source.description ) 
+dyvars=grepl("dye",vars$source.description ) 
+chem[dychem,] #note, there is concentration data in sheds for dye
+vars[dyvars,]
+
+```
+
+Spray Polyurethane foam
+```{r}
+sfchem=grepl("spray foam",chem$source.description ) 
+sfvars=grepl("spray foam",vars$source.description ) 
+chem[sfchem,] #note, there is concentration data in sheds for dye
+vars[sfvars,]
+```
+
+
+Reduce vars file to only parameters necessary for model 
+```{r}
+params=c("mass", "use.freq", "use.prev", "f.drain")
+
+
+```
+
+Combine categories together. Note: the chem file is less useful here because 1,4D is noted here as resulting from byproducts. Then, add quantiles from the appropriate distribution 
+
+```{r}
+prodvarrow=data.frame(scvars, afvars, dsvars, dwvars, ldvars, pfvars, dyvars, sfvars)
+
+#vars[prodvarrows[which(prodvarrows$scvars==TRUE), ],]
+quants=c(0.01,seq(0.1,0.9,0.1),0.99)
+vars$form=tolower(vars$form)
+quantlist=list()
+vars[vars$CV<1 & vars$form=="lognormal",] # it looks like none of the products that have CV < 1 are ones we need, but it bothers me to have NA's. 
+
+#The problem with the solution here is that if a sd gets moved to 1, than under lognormal conditions, there is not variation since it goes to 0. 
+for(i in 1:length(vars[,1])){
+sub=vars[i,]
+if(sub$form=="point" | sub$form=="uniform"){
+  sub1=rep(sub$mean,length(quants))} else 
+  {
+   gm=sub$mean/sqrt(1+sub$CV^2)
+   gsd=exp(sqrt(log(1+sub$CV^2)))
+    sub1= qlnorm(quants, log(gm), log(gsd))}
+  
+quantlist=c(quantlist,list(sub1))} 
+  
+quantab=as.data.frame(do.call("rbind", quantlist))
+names(quantab)=c(paste0("Q", c(0.01,seq(0.1,0.9,0.1),0.99)))
+
+vars=data.frame(vars, quantab)
+
+
+vars[vars$source.description=="dish soap",]
+
+
+```
+
+
+
+#Finally, compile only the variables we are interested in and write out all the excel files. 
+```{r}
+productlist=NULL
+library(xlsx)
+write.xlsx(vars,file="Consumer_Product_Vars_SHEDS_14D.xlsx", sheetName="Vars")
+write.xlsx(prodvarrow, file="Consumer_Product_Vars_SHEDS_14D.xlsx", sheetName="Extracted", append=TRUE)
+for(i in 1:length(prodvarrow[1,])){
+sub=vars[which(prodvarrow[,i]==TRUE),]
+sub=subset(sub, variable%in%params)
+productlist=rbind(productlist, sub)}
+
+#write.xlsx(productlist, file="Consumer_Product_Vars_SHEDS_14D.xlsx", sheetName = products[i], append=TRUE)}
+write.xlsx(productlist, file="Con_Prod_Vars_SHEDS_14D_SingleSheet_DED120821.xlsx")
+
+```
+
+a log normal distribution with a mean of 5 and an sd of 1 means that if you take the mean of the log-transformed values of the distribution, it'll be 5. 
+
+SHEDS takes the arithmetic mean and sd and log transforms them to sample from the log distribution. It makes sure that they aren't below 0 and 1 respectively, by transforming them to the geometric mean and sd.  
+
+qlnorm(c(0.05,0.25,0.5,0.75,0.95), meanlog=log(1000), sdlog=log(100)) #Specifies the values of each quantile
+
+plot(dlnorm(c(1:100), meanlog=log(10), sd=log(10) )) #@specifies the probability density at each value
+
+plot(plnorm(c(1:100), meanlog=log(10), sd=1 )) #specifies the comulative probability density 
+
+```
+
+v$par1[f=="logn"] <- v$mean[f=="logn"] /(1+v$cv[f=="logn"]^2)^0.5
+v$par2[f=="logn"] <- exp(log(1+v$cv[f=="logn"]^2)^0.5)
+
+
+
+

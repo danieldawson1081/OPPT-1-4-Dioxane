@@ -1,0 +1,302 @@
+---
+title: "Calculate Flows Template"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+This is template for finding the flows for a given system. 
+
+The overall layout of this script includes 1)finding the bounds of the system from the flow database and ISTREEM, 2)assembling the main stream segments, 3)building out the tributaries of each section, and 4) associating flow data. 
+
+The script is currently set up using Brunswick County Water Treatment Plant on the Cape Fear River as an example
+
+Load Libraries
+```{r}
+library(sf)
+library(openxlsx)
+
+```
+
+
+Pull in data. This includes the flow data supplied by Jason, and the flow data from NHDPlus dataset
+```{r, echo=FALSE}
+library(sf)
+library(openxlsx)
+
+##Upload flow database from Jason
+fdb=read.xlsx('Copy of Flow Db_Flat File_10232018.xlsx')
+plusflows=     st_read("NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusFlow")
+flows=     st_read("NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusEROMMA")
+flowline=st_read(  "NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDFlowline")
+flowlinevaa=st_read(  "NHDPLUS_H_0303_HU4_GDB.gdb", layer="NHDPlusFlowlineVAA")
+```
+
+
+1: Identify the bounds of the system. Determine the stream reaches in which each of the endpoints is located, based on information in the Flow database supplied by Jason
+
+Identify stream reaches of system bounds. Note: The town of white lake, NC has a wwtp that releases into Colly Creek, which eventually releases into the Cape Fear via the Black RIver. However, it only serves <600 residents, so I'm not going to include it at this point. 
+
+
+
+Flow database: POTW inputs include
+"FAYETTEVILLE-CROSS CREEK WRF"
+"ROCKFISH CREEK WWTP" 
+"ELIZABETHTOWN WASTEWATER PLAN"
+   
+```{r,echo=TRUE}
+
+#Select WWTP's
+Bounds=subset(fdb, c(PRIMARY_NAME== "FAYETTEVILLE-CROSS CREEK WRF" | 
+                PRIMARY_NAME=="ROCKFISH CREEK WWTP" |
+                PRIMARY_NAME=="ELIZABETHTOWN WASTEWATER PLAN")
+               
+              ) 
+
+#ELizabeth town wastewater plant isn't showing up 
+
+#Add in the reachcode from ISTREEM for the Brunswick DWI
+FlowBounds=flowline[which(flowline$ReachCode%in%Bounds$REACHCODE | flowline$ReachCode=="03030005001431"),]
+#FlowBounds=flowline[which(flowline$ReachCode%in%Bounds$REACHCODE),]
+FlowBounds=st_zm(FlowBounds)
+
+
+
+#Associate records with flow data and hydroseq data
+FlowBounds=merge(FlowBounds, flows[c("NHDPlusID", "QEMA")], by="NHDPlusID", all.x=TRUE)
+FlowBounds=merge(FlowBounds, flowlinevaa[c("NHDPlusID", "HydroSeq", "ToNode", "FromNode","UpHydroSeq", "DnHydroSeq", "TerminalPa", "TerminalFl", "LevelPathI")], by="NHDPlusID", all.x=TRUE)
+FlowBounds=st_zm(FlowBounds)
+FlowBounds$seq1=seq(1,dim(FlowBounds)[1],1)
+plot(FlowBounds["GNIS_Name"],key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3) #This shows the relative locations of the 2 inflow and 1 outflow
+
+
+
+##Restrict FlowBounds to only a single record for each location, representing the furthest upstream location on the reach 
+FlowBounds1=NULL
+for(i in unique(FlowBounds$GNIS_Name)){
+  river=subset(FlowBounds, GNIS_Name==i)
+  river=river[which(river$HydroSeq==max(river$HydroSeq)),]
+  FlowBounds1=rbind(FlowBounds1, river)
+  }
+
+
+##Restrict FlowBounds to only a single record for each location, representing the furthest downstream location on the reach 
+FlowBounds2=NULL
+for(i in unique(FlowBounds$GNIS_Name)){
+  river=subset(FlowBounds, GNIS_Name==i)
+  river=river[which(river$HydroSeq==min(river$HydroSeq)),]
+  FlowBounds2=rbind(FlowBounds2, river)
+  }
+
+
+```
+
+
+##Plot Flow bounds superimposed over the whole watersheds to check extend of section 
+```{r}
+#cf=flowline[flowline$GNIS_Name=="Cape Fear River",]
+#cf=st_zm(cf)
+plot(cf["GNIS_Name"], reset=FALSE)
+plot(FlowBounds["GNIS_Name"], add=TRUE, col=2, lwd=3)
+plot(FlowBounds1["GNIS_Name"], add=TRUE, lwd=10, col=4) #Most upstream extent
+plot(FlowBounds2["GNIS_Name"], add=TRUE, lwd=10, col=4) #Most downstream extent
+
+```
+
+
+If the bounds seem right, remove geometry from Flowbounds1 and Flowbounds2 to use below
+```{r}
+
+FlowBounds1=st_drop_geometry(FlowBounds1)
+FlowBounds2=st_drop_geometry(FlowBounds2)
+
+```
+
+
+Merge together the flowline and flowline attributes tables from the NHDPlus dataset
+```{r,echo=TRUE}
+sa=merge(flowline, flowlinevaa, by="NHDPlusID", all.y=TRUE, no.dups=TRUE)
+sa=sa[,-c(which(names(sa)=="ReachCode.x"))]
+names(sa)[which(names(sa)=="ReachCode.y")]="ReachCode"
+sa=st_zm(sa) #drop the z dimension here.
+sa1=st_drop_geometry(sa) #create a geometry less data.frame to work with here. 
+
+cf1=subset(sa, GNIS_Name=="Cape Fear River")
+
+
+```
+Stream Segment Building Function
+```{r,echo=TRUE}
+StreamSegfunc=function(ss1, dbf, pf){
+sabuild=ss1 #assign 
+StreamList=unique(sabuild$NHDPlusID)
+newcount=length(StreamList)
+pf1=pf[-c(which(duplicated(pf$ToNHDPID))),]
+sadim=dim(sabuild)[1]
+
+while(sadim>0){
+  sabuild1=merge(sabuild, pf1,by.x="NHDPlusID", by.y="ToNHDPID", all.x=TRUE, all.y=FALSE)
+  newstreams=sabuild1$FromNHDPID
+  StreamList=c(StreamList, newstreams)
+  StreamList= StreamList[-c(which(duplicated(StreamList)==TRUE))]
+  sabuild=dbf[which(dbf$NHDPlusID%in%newstreams),]
+  sadim=dim(sabuild)[1]
+  }
+  return(StreamList)}
+```
+
+
+```{r}
+
+uniquesegs=FlowBounds1$GNIS_Name
+print(uniquesegs)
+
+```
+
+Now, assemble the main stream reach segments using at most 1 code chunk for each unique GNIS identified. Note, some unique names may be be subsets of larger segments (e.g., POTW A may be on creek B, which then flows into River C, which meets up with River D, which has the water system of interest ). For these situations, compile all of the subsegments together on a code chunk for the segment. Then, compile all of the segments together. Use the template code to get started, and copy it as often as you need.       
+
+TEMPLATES TO COPY:
+
+Template Code: One Main Segment
+```{r, echo=TRUE}
+Segment =""
+
+#Restrict to top end of segment
+sub1=sa1[which(sa1$GNIS_Name==Segment),]
+maxsub1=sub1[which(sub1$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name==Segment), "ReachCode"]), "PathLength"]
+sub1=sub1[sub1$PathLength<=max(maxsub1), ] #Select the upper most distance
+range(sub1$PathLength)
+
+
+#Restrict to top end of segment 
+sub2=sa1[which(sa1$GNIS_Name==Segment),]
+minsub2=sub1[which(sub1$ReachCode==FlowBounds2[which(FlowBounds2$GNIS_Name==Segment), "ReachCode"]), "PathLength"]
+sub1=sub1[sub1$PathLength>=min(minsub2), ] #Select the upper most distance
+range(sub1$PathLength)
+
+
+S1=StreamSegfunc(ss1=sub1, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%S1),]
+unique(sa2$GNIS_Name)
+plot(sa2["GNIS_Name"], main=paste0(Segment, " WaterShed Focus Area"),key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)
+
+
+
+
+
+
+```
+
+
+Template Code: More than one sub segment
+```{r, echo=TRUE}
+SubSegment1="Cape Fear River"
+#Subsegment 1
+sub1=sa1[which(sa1$GNIS_Name==SubSegment1),]
+#Find maximum extent
+maxsub1=max(sub1[which(sub1$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name==SubSegment1), "ReachCode"]),"PathLength"])
+sub1=sub1[sub1$PathLength<=maxsub1,]
+minsub1=sub1[which(sub1$PathLength==min(sub1$PathLength)),"DnHydroSeq"]
+
+#Subsegment 2
+sub2=sa1[which(sa1$GNIS_Name=="[Subsegment 2]"),]
+sub2=sub2[order(sub2$PathLength),]
+minextsub2=sub2[which(sub2$PathLength==min(sub2$PathLength)),"PathLength"] #Beginning of River
+maxextsub2=sub2[which(sub2$HydroSeq==minsub1), "PathLength"  ]
+sub2=sub2[which(sub2$PathLength>=minextsub2 & sub2$PathLength<=maxextsub2),]
+
+sub3=rbind(sub1,sub2)
+
+S2=StreamSegfunc(sub3, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%S1),]
+plot(sa2["GNIS_Name"],
+     key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3, pal=sf.colors(11, categorical=TRUE), main="[Segment 1] Watershed Focus Area", )
+
+```
+####
+
+Brunswick Example
+```{r, echo=TRUE}
+Segment ="Cape Fear River"
+
+
+#Restrict to top end of segment
+sub1=sa1[which(sa1$GNIS_Name==Segment),]
+maxsub1=sub1[which(sub1$ReachCode==FlowBounds1[which(FlowBounds1$GNIS_Name==Segment), "ReachCode"]), "PathLength"]
+sub1=sub1[sub1$PathLength<=max(maxsub1), ] #Select the upper most distance
+range(sub1$PathLength)
+
+
+
+#Restrict to top end of segment 
+sub2=sa1[which(sa1$GNIS_Name==Segment),]
+minsub2=sub1[which(sub1$ReachCode==FlowBounds2[which(FlowBounds2$GNIS_Name==Segment), "ReachCode"]), "PathLength"]
+sub1=sub1[sub1$PathLength>=min(minsub2), ] #Select the upper most distance
+range(sub1$PathLength)
+
+#
+S1=StreamSegfunc(ss1=sub1, dbf=sa1, pf=plusflows)
+sa2=sa[which(sa$NHDPlusID%in%S1),]
+unique(sa2$GNIS_Name)
+plot(sa2["GNIS_Name"], main=paste0(Segment, " WaterShed Focus Area"),key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)
+
+
+AllStreams=S1
+#AllStreams
+
+```
+
+
+Now combine together entire watershed of focus area. First eliminate duplicates between sets if there are multiple sets, and combine. This chuck can be skipped if there is only one main segment. 
+```{r,echo=TRUE}
+
+#First, eliminate duplicates between sets if there are more than one segment
+S1=S1[-c(which(S1%in%S2))]
+S2=S2[-c(which(S2%in%S1))]
+AllStreams=c(S1,S2)
+}
+
+```
+
+Now create entire set to check
+```{r}
+
+sa2=sa[which(sa$NHDPlusID%in%AllStreams),]
+sa2$GNIS_Name=ifelse(is.na(sa2$GNIS_Name), "UnNamed", sa2$GNIS_Name)
+plot(sa2["GNIS_Name"], main=paste0(Segment, "WaterShed Focus Area"),key.pos=4, key.length=0.75, key.width=lcm(5), lwd=3)# Confirmed; area looks correct
+
+
+
+#Now, extract flow data for each segment
+saentire=merge(sa, flows[c("NHDPlusID", "QEMA", "QIncrAMA", "QIncrBMA", "QIncrCMA", "QIncrDMA", "QIncrEMA","QIncrFMA")], by="NHDPlusID", all.x=TRUE)
+
+```
+
+Next, extract flow data from each watershed. The NHDPlus dataset comes with incremental flows. So, we just have to sum all of these flows to get the expected total flow in the system from the particular watersheds. Then, we have to divide the total inputs into the system by this value. Not sure whether to include the flows from the inputs (i.e., wastewater volumes, industrial releases), since they would ostensibly be already captured by the gauges.  
+```{r, echo=TRUE}
+S1Flow=saentire[which(saentire$NHDPlusID%in%S1),]
+
+S1FlowGZ=S1Flow[S1Flow$QIncrEMA>0,]
+
+
+#Incremental Flow
+S1Flowtotal=sum(S1Flow$QIncrEMA)#incremental flow from gage adjustment  
+S1FlowtotalGZ=sum(S1FlowGZ$QIncrEMA)#incremental flow from gage adjustment  
+
+
+#Main Stream
+MainStem=S1Flow[which(S1Flow$GNIS_Name==Segment),]
+MainStemFlow1=sum(na.omit(MainStem$QIncrEMA)) #Need to check to see if this right metric here. 
+
+print(S1Flowtotal)
+print(MainStemFlow1)
+
+```
+
+
+
+
+

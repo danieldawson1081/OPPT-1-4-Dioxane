@@ -1,0 +1,39 @@
+---
+title: "Occupation_Percentages"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+In this script, we are calculating the proportions of each profession identified as using a product commercially that contains 1,4D. We are assuming a 2020 population of approximately 332 million. For this, we are a table downloaded from the Bureau of Labor Statistics that has been modified so that sub-categories of employement are listed as columns instead of indentations in the table. 
+
+
+
+Bring in library and import table
+```{r}
+library(openxlsx)
+occ=read.xlsx("OccupationTable_modified_110421.xlsx", startRow = 6)
+#Note, need to get rid white spaces
+```
+
+Now, extract out from the table the occupations identified by Natalia as the ones of interest. First, import table constructed from the one put together by Natalia:
+
+```{r}
+occ14d=read.xlsx("Occupations_for_14D.xlsx")
+
+```
+
+Now, extract out the lines from the occ table with the occupations listed in occ14d. Then, divide by 332 million(in thousands) to get at proportions of the population in each industry. If we assume that these proportions are consistent across populations, this will allow us to extrapolate the number of people contributing to different commercial releases in each community. 
+
+
+```{r}
+USPop=332000000/1000
+occ1=occ[which(occ$Occupation%in%occ14d$Occupation),]
+occ1=merge(occ1, occ14d, by="Occupation")
+occ1$Proportion=occ1$Total.employed/USPop
+
+occ1=subset(occ1, select=c("Product","Occupation", "Proportion"))
+write.xlsx(occ1, file="Products_Commercial_Use_1,4D.xlsx")
+
+```
